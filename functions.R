@@ -71,7 +71,7 @@ fun_ss_hat_all = function(X, n, q) {
 ##------------------------------------------------------------------------------
 ## Functions for decomposing X
 
-fun_v = function(cl, k1, k2) {
+fun_v = function(cl, k1 = 1, k2 = 2) {
   # input(s):
   # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
   # - k1: cluster index of one of the clusters we are testing
@@ -83,23 +83,6 @@ fun_v = function(cl, k1, k2) {
   tmp2 = (cl == k2) / sum(cl == k2)
   to_return = tmp1 - tmp2
   return(to_return)
-}
-
-fun_w = function(cl, k1, k2) {
-  # input(s):
-  # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
-  # - k1: cluster index of one of the clusters we are testing
-  # - k2: cluster index of the other cluster we are testing
-  # output(s):
-  # - w, which is a vector of length n
-  n = length(cl)
-  n1 = sum(cl == k1)
-  n2 = sum(cl == k2)
-  w = matrix(rep(1, n), n, 1)
-  idx_other = setdiff(seq(1, n), c(which(cl == k1), which(cl == k2)))
-  w[idx_other] = 0
-  w = w / (n1 + n2)
-  return(w)
 }
 
 fun_P0 = function(cl, k1, k2) {
@@ -114,26 +97,25 @@ fun_P0 = function(cl, k1, k2) {
   return(P0)
 }
 
-fun_P2 = function(cl, k1, k2) {
+fun_P1 = function(cl, k1, k2) {
   # input(s):
   # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
   # - k1: cluster index of one of the clusters we are testing
   # - k2: cluster index of the other cluster we are testing
   # output(s):
   # - P2, which is a projection matrix of size n by n 
-  n = length(cl)
-  w = fun_w(cl, k1, k2)
-  idx_other = setdiff(seq(1, n), c(which(cl == k1), which(cl == k2)))
-  P2 = w %*% t(w) / sum(w ** 2)
-  for (i in 1:length(idx_other)) {
-    evec = rep(0, n)
-    evec[idx_other[i]] = 1
-    P2 = P2 + evec %*% t(evec) 
-  }
-  return(P2)
+  n = length(cl); n_k1 = sum(cl == k1); n_k2 = sum(cl == k2)
+  idx_k1 = rep(0, n)
+  idx_k1[which(cl == k1)] = 1
+  idx_k2 = rep(0, n)
+  idx_k2[which(cl == k2)] = 1
+  term1 = diag(idx_k1) - (idx_k1 %*% t(idx_k1)) / n_k1
+  term2 = diag(idx_k2) - (idx_k2 %*% t(idx_k2)) / n_k2
+  P1 = term1 + term2
+  return(P1)
 }
 
-fun_P1 = function(cl, k1, k2) {
+fun_P2 = function(cl, k1, k2) {
   # input(s):
   # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
   # - k1: cluster index of one of the clusters we are testing
@@ -141,8 +123,8 @@ fun_P1 = function(cl, k1, k2) {
   # output(s):
   # - P1, which is a projection matrix of size n by n 
   n = length(cl)
-  P1 = diag(n) - fun_P0(cl, k1, k2) - fun_P2(cl, k1, k2)
-  return(P1)
+  P2 = diag(n) - fun_P0(cl, k1, k2) - fun_P1(cl, k1, k2)
+  return(P2)
 }
 
 ##------------------------------------------------------------------------------
@@ -165,22 +147,25 @@ fun_gen_X = function(n, q, ss, delta = 0) {
   return(X)
 }
 
-fun_ts = function(X, cl, k1, k2) {
+fun_ts = function(X, cl, k1 = 1, k2 = 2) {
   # input(s):
   # - X: data matrix of dimensions n by q 
   # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
   # - k1: cluster index of one of the clusters we are testing
   # - k2: cluster index of the other cluster we are testing
   # output(s):
-  # - test statistic that follows Beta distribution
-  n = length(cl)
+  # - test statistic that follows F distribution
+  m = sum(cl == k1) + sum(cl == k2)
+  q = dim(X)[2]
   P0X = fun_P0(cl, k1, k2) %*% X 
   P1X = fun_P1(cl, k1, k2) %*% X
-  ts = (sqrt(sum(P0X ** 2)) / sqrt(sum(P0X ** 2) + sum(P1X ** 2))) ** 2
+  df_numer = q
+  df_denom = (m - 2) * q
+  ts = (sum(P0X ** 2) / df_numer) / (sum(P1X ** 2) / df_denom)
   return(ts)
 }
 
-fun_P1X_norm = function(X, cl, k1, k2) {
+fun_P1X_norm = function(X, cl, k1 = 1, k2 = 2) {
   # input(s):
   # - X: data matrix of dimensions n by q 
   # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
@@ -224,21 +209,18 @@ fun_F_to_chi2 = function(x, n1, n2) {
   return(to_return)
 }
 
-fun_pval_sig_unknown = function(X, cl, S, k1, k2) {
+fun_pval_sig_unknown = function(X, cl, S) {
   # input(s):
   # - X: data matrix of dimensions n by q 
-  # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 3, 3, 2)
+  # - cl: vector of cluster assignments, e.g. c(1, 1, 2, 1, 1, 2)
   # - S: the truncation set
-  # - k1: cluster index of one of the clusters we are testing
-  # - k2: cluster index of the other cluster we are testing
   # output(s):
   # - p-value 
   n = length(cl)
   q = ncol(X)
-  P1X_norm = fun_P1X_norm(X, cl, k1, k2)
-  S_ = S / (P1X_norm * clusterpval:::norm_vec(fun_v(cl, k1, k2)))
-  ts = fun_ts(X, cl, k1, k2) # test statistic that follows Beta distribution
-  ts = (n - 2) * ts / (1 - ts) # converts to F statistic
+  P1X_norm = fun_P1X_norm(X, cl)
+  S_ = S / (P1X_norm * clusterpval:::norm_vec(fun_v(cl)))
+  ts = fun_ts(X, cl) # test statistic that follows F distribution
   set_ts = Intervals(c(ts, Inf))
   set_denom = (n - 2) * S_ ** 2
   set_numer = interval_intersection(set_ts, set_denom)
@@ -248,27 +230,28 @@ fun_pval_sig_unknown = function(X, cl, S, k1, k2) {
   return(pval)
 }
 
-fun_proposed_exact = function(X, k1 = 1, k2 = 2) {
+fun_proposed_exact = function(X) {
   # input(s):
   # - X: data matrix of dimensions n by q 
-  # - k1: cluster index of one of the clusters we are testing
-  # - k2: cluster index of the other cluster we are testing
   # output(s):
   # - p-value
   hc = hclust(dist(X) ** 2, method = "average")
   cl = cutree(hc, 2) 
-  S = clusterpval:::compute_S_average(X, hc, 2, k1, k2, dist(X) ** 2)
-  pval = fun_pval_sig_unknown(X, cl, S, k1, k2)
+  K = 2; k1 = 1; k2 = 2
+  S = clusterpval:::compute_S_average(X, hc, K, k1, k2, dist(X) ** 2)
+  pval = fun_pval_sig_unknown(X, cl, S)
   return(pval)
 }
 
 ##------------------------------------------------------------------------------
 ## Functions for computing p-value approximately
 
-fun_ratio_target_to_proposal = function(x, ts, m, q, alpha) {
+fun_ratio_target_to_proposal = function(x, ts_, m, q, alpha) {
   # input(s):
   # - x: value at which we're computing the density function
-  # - ts: test statistic following the F distribution
+  # - ts_: value specifying the mean of the truncated normal distribution
+  #        the underscore distinguishes it from the variable name for the 
+  #        test statistic that follows the F distribution
   # - m: number of observations in the two clusters we are testing
   # - q: number of columns of X
   # - alpha: the sd of the proposal distribution
@@ -276,7 +259,7 @@ fun_ratio_target_to_proposal = function(x, ts, m, q, alpha) {
   # - difference between the logs of the pdf value of the target distribution 
   #   and the pdf value of the proposal distribution 
   numer_f = dbeta(x, q / 2, (m * q - 2 * q) / 2, log = TRUE)
-  denom_g = log(dtruncnorm(x, a = 0, b = 1, mean = ts, sd = alpha))
+  denom_g = log(dtruncnorm(x, a = 0, b = 1, mean = ts_, sd = alpha))
   to_return = numer_f - denom_g
   return(to_return)
 }
@@ -300,23 +283,23 @@ fun_proposed_approx = function(X, K, k1, k2, ndraws, alpha) {
   n1 = sum(cl == k1)
   n2 = sum(cl == k2)
   m = n1 + n2
-  w = fun_w(cl, k1, k2)
   P0 = fun_P0(cl, k1, k2)
   P1 = fun_P1(cl, k1, k2)
   P2 = fun_P2(cl, k1, k2)
+  psi0 = sqrt(sum((P0 %*% X) ** 2))
+  psi1 = sqrt(sum((P1 %*% X) ** 2))
   # constructs test statistic
-  psi0 = clusterpval:::norm_vec(P0 %*% X)
-  psi1 = clusterpval:::norm_vec(P1 %*% X)
-  ts = (psi0 / sqrt(psi0 ** 2 + psi1 ** 2)) ** 2 # follows Beta distribution
+  ts = fun_ts(X, cl, k1, k2) # test statistic following F distribution
+  ts_Beta = (ts / (m - 2)) / (1 + ts / (m - 2)) # converts to Beta statistic
   # samples from the proposal distribution 
-  samp = rtruncnorm(ndraws, a = 0, b = 1, mean = ts, sd = alpha) 
+  samp = rtruncnorm(ndraws, a = 0, b = 1, mean = ts_Beta, sd = alpha) 
   # computes weights
   tmp_w = samp
-  w = sapply(tmp_w, fun_ratio_target_to_proposal, ts = ts, m = m, 
+  w = sapply(tmp_w, fun_ratio_target_to_proposal, ts_ = ts_Beta, m = m, 
              q = q, alpha = alpha)
   # computes part of h1 
   vec_h1 = rep(0, ndraws)
-  vec_h1[samp >= ts] = 1
+  vec_h1[samp >= ts_Beta] = 1
   # computes h2  
   t1 = sqrt(psi0 ** 2 + psi1 ** 2) 
   t2 = P0 %*% X / psi0 
@@ -351,9 +334,10 @@ fun_power = function(vec_p, thresh) {
   # output(s):
   # - empirical power
   # - standard error
-  num_p = length(vec_p)
+  vec_p_new = vec_p[is.na(vec_p) != 1]
+  num_p = length(vec_p_new)
   indic = rep(0, num_p)
-  indic[vec_p < thresh] = 1
+  indic[vec_p_new < thresh] = 1
   po = sum(indic) / num_p
   eb = sd(indic) / sqrt(num_p) 
   to_return = c(po, eb)
