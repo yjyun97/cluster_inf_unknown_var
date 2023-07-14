@@ -38,14 +38,13 @@ X = apply(X_pre, 2, function (x) {(x - mean(x)) / sd(x)})
 
 # runs clustering
 hc = hclust(dist(X) ** 2, method = "average")
-cl = stats::cutree(hc, K) 
+cl = stats::cutree(hc, K)
 
 # visualizes data 
 df = data.frame(x = X_pre[, 2],
                 y = X_pre[, 1],
                 col_vec = as.factor(cl),
-                shape_vec = as.factor(rep(c("Adelie", "Gentoo", "Chinstrap"), 
-                                          each = round(n / 3))))
+                shape_vec = as.factor(true_y))
 
 plot_penguins = ggplot(df, aes(x = x, y = y)) + 
   geom_point(aes(shape = shape_vec, color = col_vec), size = 5) + 
